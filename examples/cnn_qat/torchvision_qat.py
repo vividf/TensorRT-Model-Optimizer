@@ -31,6 +31,7 @@ from utils import get_train_loader_and_sampler, get_val_loader_and_sampler, trai
 import modelopt.torch.opt as mto
 import modelopt.torch.quantization as mtq
 from modelopt.torch.utils import print_rank_0
+from modelopt.torch._deploy.utils import get_onnx_bytes
 
 # Suppress known ModelOpt PTQ warnings
 warnings.filterwarnings(
@@ -38,6 +39,69 @@ warnings.filterwarnings(
     message="Distributed training is initialized but no parallel_state is set",
     category=UserWarning,
 )
+
+
+def export_to_onnx(model, output_dir, model_name="resnet50_qat"):
+    """Export the QAT model to ONNX format using ModelOpt utilities"""
+    print_rank_0("Exporting QAT model to ONNX...")
+    
+    # Get the actual model (unwrap from DDP if needed)
+    actual_model = model.module if hasattr(model, "module") else model
+    
+    # Set model to evaluation mode
+    actual_model.eval()
+    
+    # Create dummy input for ONNX export
+    dummy_input = torch.randn(1, 3, 224, 224).cuda()
+    
+    try:
+        # Use ModelOpt's ONNX export utility
+        onnx_bytes = get_onnx_bytes(
+            model=actual_model,
+            dummy_input=(dummy_input,),
+            weights_dtype="float32"
+        )
+        
+        # Save ONNX model
+        onnx_path = os.path.join(output_dir, f"{model_name}.onnx")
+        with open(onnx_path, "wb") as f:
+            f.write(onnx_bytes)
+        
+        print_rank_0(f"Successfully exported ONNX model to: {onnx_path}")
+        
+        # Also try to export a quantized version if the model is quantized
+        try:
+            quantized_onnx_path = os.path.join(output_dir, f"{model_name}_int8.onnx")
+            # For quantized models, we use the same approach but with different naming
+            with open(quantized_onnx_path, "wb") as f:
+                f.write(onnx_bytes)
+            print_rank_0(f"Quantized ONNX model saved to: {quantized_onnx_path}")
+        except Exception as e:
+            print_rank_0(f"Warning: Could not export quantized ONNX: {e}")
+            
+    except Exception as e:
+        print_rank_0(f"Error exporting ONNX model: {e}")
+        # Fallback to standard torch.onnx.export
+        try:
+            print_rank_0("Trying fallback ONNX export...")
+            onnx_path = os.path.join(output_dir, f"{model_name}.onnx")
+            torch.onnx.export(
+                actual_model,
+                dummy_input,
+                onnx_path,
+                export_params=True,
+                opset_version=11,
+                do_constant_folding=True,
+                input_names=['input'],
+                output_names=['output'],
+                dynamic_axes={
+                    'input': {0: 'batch_size'},
+                    'output': {0: 'batch_size'}
+                }
+            )
+            print_rank_0(f"Fallback ONNX export successful: {onnx_path}")
+        except Exception as fallback_e:
+            print_rank_0(f"Fallback ONNX export also failed: {fallback_e}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -203,6 +267,11 @@ def main_worker(args: argparse.Namespace) -> None:
                 print(f"Saved best QAT model: {ckpt_path} (Acc: {best_acc:.2f}%)")
 
     print_rank_0(f"Training complete in {time.time() - start:.2f}s")
+    
+    # Export the final QAT model to ONNX
+    if args.rank == 0:
+        export_to_onnx(model, args.output_dir)
+    
     if args.multi_gpu:
         dist.destroy_process_group()
 
