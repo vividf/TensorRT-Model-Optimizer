@@ -68,16 +68,6 @@ def export_to_onnx(model, output_dir, model_name="resnet50_qat"):
             f.write(onnx_bytes)
         
         print_rank_0(f"Successfully exported ONNX model to: {onnx_path}")
-        
-        # Also try to export a quantized version if the model is quantized
-        try:
-            quantized_onnx_path = os.path.join(output_dir, f"{model_name}_int8.onnx")
-            # For quantized models, we use the same approach but with different naming
-            with open(quantized_onnx_path, "wb") as f:
-                f.write(onnx_bytes)
-            print_rank_0(f"Quantized ONNX model saved to: {quantized_onnx_path}")
-        except Exception as e:
-            print_rank_0(f"Warning: Could not export quantized ONNX: {e}")
             
     except Exception as e:
         print_rank_0(f"Error exporting ONNX model: {e}")
