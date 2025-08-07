@@ -42,8 +42,8 @@ warnings.filterwarnings(
 
 
 def export_to_onnx(model, output_dir, model_name="resnet50_qat"):
-    """Export the QAT model to ONNX format using ModelOpt utilities"""
-    print_rank_0("Exporting QAT model to ONNX...")
+    """Export the model to ONNX format using ModelOpt utilities"""
+    print_rank_0(f"Exporting {model_name} model to ONNX...")
     
     # Get the actual model (unwrap from DDP if needed)
     actual_model = model.module if hasattr(model, "module") else model
@@ -54,44 +54,44 @@ def export_to_onnx(model, output_dir, model_name="resnet50_qat"):
     # Create dummy input for ONNX export
     dummy_input = torch.randn(1, 3, 224, 224).cuda()
     
-    try:
-        # Use ModelOpt's ONNX export utility
-        onnx_bytes = get_onnx_bytes(
-            model=actual_model,
-            dummy_input=(dummy_input,),
-            weights_dtype="float32"
-        )
+    # try:
+    #     # Use ModelOpt's ONNX export utility
+    #     onnx_bytes = get_onnx_bytes(
+    #         model=actual_model,
+    #         dummy_input=(dummy_input,),
+    #         weights_dtype="int8"  # Export as INT8 for TensorRT optimization
+    #     )
         
-        # Save ONNX model
-        onnx_path = os.path.join(output_dir, f"{model_name}.onnx")
-        with open(onnx_path, "wb") as f:
-            f.write(onnx_bytes)
+    #     # Save ONNX model
+    #     onnx_path = os.path.join(output_dir, f"{model_name}.onnx")
+    #     with open(onnx_path, "wb") as f:
+    #         f.write(onnx_bytes)
         
-        print_rank_0(f"Successfully exported ONNX model to: {onnx_path}")
+    #     print_rank_0(f"Successfully exported ONNX model to: {onnx_path}")
             
-    except Exception as e:
-        print_rank_0(f"Error exporting ONNX model: {e}")
+    # except Exception as e:
+    #     print_rank_0(f"Error exporting ONNX model: {e}")
         # Fallback to standard torch.onnx.export
-        try:
-            print_rank_0("Trying fallback ONNX export...")
-            onnx_path = os.path.join(output_dir, f"{model_name}.onnx")
-            torch.onnx.export(
-                actual_model,
-                dummy_input,
-                onnx_path,
-                export_params=True,
-                opset_version=11,
-                do_constant_folding=True,
-                input_names=['input'],
-                output_names=['output'],
-                dynamic_axes={
-                    'input': {0: 'batch_size'},
-                    'output': {0: 'batch_size'}
-                }
-            )
-            print_rank_0(f"Fallback ONNX export successful: {onnx_path}")
-        except Exception as fallback_e:
-            print_rank_0(f"Fallback ONNX export also failed: {fallback_e}")
+    try:
+        print_rank_0("Trying ONNX export...")
+        onnx_path = os.path.join(output_dir, f"{model_name}.onnx")
+        torch.onnx.export(
+            actual_model,
+            dummy_input,
+            onnx_path,
+            export_params=True,
+            opset_version=19,
+            do_constant_folding=True,
+            input_names=['input'],
+            output_names=['output'],
+            dynamic_axes={
+                'input': {0: 'batch_size'},
+                'output': {0: 'batch_size'}
+            }
+        )
+        print_rank_0(f"ONNX export successful: {onnx_path}")
+    except Exception as fallback_e:
+        print_rank_0(f"ONNX export also failed: {fallback_e}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -202,6 +202,10 @@ def main_worker(args: argparse.Namespace) -> None:
     val_calib_loader, _ = get_val_loader_and_sampler(args, num_workers=0)
     val_loader, _ = get_val_loader_and_sampler(args)
 
+    # Export original FP32 model to ONNX
+    if args.rank == 0:
+        export_to_onnx(model, args.output_dir, "resnet50_fp32")
+
     # FP32 baseline evaluation
     print_rank_0("Evaluating FP32 baseline...")
     orig_acc = validate(model, val_loader, criterion, args)
@@ -260,7 +264,7 @@ def main_worker(args: argparse.Namespace) -> None:
     
     # Export the final QAT model to ONNX
     if args.rank == 0:
-        export_to_onnx(model, args.output_dir)
+        export_to_onnx(model, args.output_dir, "resnet50_qat")
     
     if args.multi_gpu:
         dist.destroy_process_group()
