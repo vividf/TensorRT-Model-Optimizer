@@ -12,35 +12,35 @@ ENV PIP_EXTRA_INDEX_URL=$PIP_EXTRA_INDEX_URL \
 
 WORKDIR /workspace
 
-# Install TensorRT-LLM from source
-RUN --mount=type=ssh,id=nvidia git clone https://github.com/NVIDIA/TensorRT-LLM.git tensorrt-llm \
-    && cd tensorrt-llm \
-    && git checkout ${TRT_LLM_COMMIT} \
-    && git submodule update --init --recursive
+# # Install TensorRT-LLM from source
+# RUN --mount=type=ssh,id=nvidia git clone https://github.com/NVIDIA/TensorRT-LLM.git tensorrt-llm \
+#     && cd tensorrt-llm \
+#     && git checkout ${TRT_LLM_COMMIT} \
+#     && git submodule update --init --recursive
 
-# Install required dependencies
-RUN bash tensorrt-llm/docker/common/install_base.sh $(python --version 2>&1 | awk '{print $2}')
-RUN bash tensorrt-llm/docker/common/install_cmake.sh
-RUN bash tensorrt-llm/docker/common/install_mpi4py.sh
-RUN bash tensorrt-llm/docker/common/install_tensorrt.sh
-RUN bash tensorrt-llm/docker/common/install_cuda_toolkit.sh
+# # Install required dependencies
+# RUN bash tensorrt-llm/docker/common/install_base.sh $(python --version 2>&1 | awk '{print $2}')
+# RUN bash tensorrt-llm/docker/common/install_cmake.sh
+# RUN bash tensorrt-llm/docker/common/install_mpi4py.sh
+# RUN bash tensorrt-llm/docker/common/install_tensorrt.sh
+# RUN bash tensorrt-llm/docker/common/install_cuda_toolkit.sh
 
-RUN cd tensorrt-llm && git lfs install && git lfs pull
+# RUN cd tensorrt-llm && git lfs install && git lfs pull
 
-RUN cd tensorrt-llm \
-    && ./scripts/build_wheel.py --job_count $(nproc) --clean --python_bindings --benchmarks --install --cuda_architecture=${CUDA_ARCH} \
-    && git rev-parse --short HEAD > /workspace/tensorrt-llm.commit \
-    && chmod -R 777 .
-RUN pip install tensorrt-llm/build/tensorrt_llm*.whl
+# RUN cd tensorrt-llm \
+#     && ./scripts/build_wheel.py --job_count $(nproc) --clean --python_bindings --benchmarks --install --cuda_architecture=${CUDA_ARCH} \
+#     && git rev-parse --short HEAD > /workspace/tensorrt-llm.commit \
+#     && chmod -R 777 .
+# RUN pip install tensorrt-llm/build/tensorrt_llm*.whl
 
-# Remove TensorRT-LLM source code to reduce image size except for benchmarks and examples folders
-RUN if [ "$REMOVE_TRT_LLM_SRC" = "1" ]; then \
-    mkdir -p tensorrt-llm_keep; \
-    mv tensorrt-llm/benchmarks tensorrt-llm_keep/benchmarks; \
-    mv tensorrt-llm/examples tensorrt-llm_keep/examples; \
-    rm -rf tensorrt-llm; \
-    mv tensorrt-llm_keep tensorrt-llm; \
-    fi
+# # Remove TensorRT-LLM source code to reduce image size except for benchmarks and examples folders
+# RUN if [ "$REMOVE_TRT_LLM_SRC" = "1" ]; then \
+#     mkdir -p tensorrt-llm_keep; \
+#     mv tensorrt-llm/benchmarks tensorrt-llm_keep/benchmarks; \
+#     mv tensorrt-llm/examples tensorrt-llm_keep/examples; \
+#     rm -rf tensorrt-llm; \
+#     mv tensorrt-llm_keep tensorrt-llm; \
+#     fi
 
 # Update PATH and LD_LIBRARY_PATH variables for the TensorRT binaries
 ENV LD_LIBRARY_PATH="/usr/local/tensorrt/targets/x86_64-linux-gnu/lib:${LD_LIBRARY_PATH}" \
